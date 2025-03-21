@@ -238,15 +238,15 @@ bot.action(/quality:(.+):(.+)/, async (ctx) => {
 });
 
 // Helper function to set up webhook
-async function setupWebhook(appUrl) {
+async function setupWebhook(baseUrl) {
   try {
     if (!process.env.TELEGRAM_BOT_TOKEN) {
       console.error('TELEGRAM_BOT_TOKEN is not defined');
       return { success: false, message: 'TELEGRAM_BOT_TOKEN is not defined' };
     }
 
-    // Get Heroku app URL
-    const webhookUrl = `https://${appUrl}/bot${process.env.TELEGRAM_BOT_TOKEN}`;
+    // Get server URL
+    const webhookUrl = `${baseUrl}/bot${process.env.TELEGRAM_BOT_TOKEN}`;
     console.log(`Setting webhook to: ${webhookUrl}`);
 
     const response = await bot.telegram.setWebhook(webhookUrl);
@@ -258,24 +258,27 @@ async function setupWebhook(appUrl) {
   }
 }
 
-// Get Heroku app name from environment or from request
-function getAppUrl(req) {
+// Get bot server URL from environment or from request
+function getServerUrl(req) {
   // First try from environment variables
-  if (process.env.HEROKU_APP_NAME) {
-    return `${process.env.HEROKU_APP_NAME}.herokuapp.com`;
+  if (process.env.SERVER_URL) {
+    return process.env.SERVER_URL;
   }
   
-  // Then try from request headers
+  // Then try from request headers with appropriate protocol
   if (req && req.headers && req.headers.host) {
-    return req.headers.host;
+    const protocol = req.headers['x-forwarded-proto'] || 'http';
+    return `${protocol}://${req.headers.host}`;
   }
   
   // Default fallback
-  return process.env.HEROKU_URL || 'localhost:' + port;
+  return `http://localhost:${port}`;
 }
 
-// Set up the webhook for production or use polling for development
-if (process.env.NODE_ENV === 'production') {
+// Determine whether to use webhook or polling
+const useWebhook = process.env.USE_WEBHOOK === 'true';
+
+if (useWebhook) {
   // Webhook endpoint
   app.post(`/bot${process.env.TELEGRAM_BOT_TOKEN}`, (req, res) => {
     bot.handleUpdate(req.body, res);
@@ -284,7 +287,7 @@ if (process.env.NODE_ENV === 'production') {
   
   console.log('Bot is configured for webhook mode');
 } else {
-  // Start polling for development
+  // Start polling for development or simple VM setup
   bot.launch().then(() => {
     console.log('Bot is running in polling mode');
   });
@@ -307,8 +310,8 @@ app.get('/setup-success', (req, res) => {
 // Setup webhook endpoint
 app.post('/setup-webhook', async (req, res) => {
   try {
-    const appUrl = getAppUrl(req);
-    const result = await setupWebhook(appUrl);
+    const serverUrl = getServerUrl(req);
+    const result = await setupWebhook(serverUrl);
     
     res.json(result);
   } catch (error) {
@@ -334,15 +337,20 @@ const server = app.listen(port, async () => {
   console.log(`Server is running on port ${port}`);
   
   // Auto setup webhook if enabled
-  if (process.env.NODE_ENV === 'production' && process.env.AUTO_SETUP_WEBHOOK === 'true') {
+  if (useWebhook && process.env.AUTO_SETUP_WEBHOOK === 'true') {
     try {
       console.log('Attempting automatic webhook setup...');
       
       // Wait a moment to ensure the server is fully started
       await new Promise(resolve => setTimeout(resolve, 3000));
       
-      const appUrl = getAppUrl();
-      const result = await setupWebhook(appUrl);
+      const serverUrl = process.env.SERVER_URL;
+      if (!serverUrl) {
+        console.error('SERVER_URL environment variable not set. Cannot auto-setup webhook.');
+        return;
+      }
+      
+      const result = await setupWebhook(serverUrl);
       
       if (result.success) {
         console.log('Automatic webhook setup complete!');

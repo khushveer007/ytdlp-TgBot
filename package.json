@@ -5,13 +5,15 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "install-service": "node install-service.js"
   },
   "keywords": [
     "telegram",
     "bot",
     "yt-dlp",
-    "heroku"
+    "azure",
+    "vm"
   ],
   "author": "",
   "license": "MIT",
