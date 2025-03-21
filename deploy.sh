@@ -7,12 +7,14 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-# Banner
+# Banner and immediate start indication
 echo -e "${GREEN}"
 echo "=================================="
 echo "  YT-DLP Telegram Bot Deployment  "
 echo "=================================="
 echo -e "${NC}"
+echo -e "${YELLOW}Starting deployment process...${NC}"
+echo ""
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
@@ -56,7 +58,10 @@ prompt() {
   fi
 }
 
-# Ask for configuration values
+# Collect all configuration values up front
+progress "Collecting configuration information..."
+echo ""
+
 bot_token=$(prompt "Enter your Telegram Bot Token" "")
 
 while [ -z "$bot_token" ]; do
@@ -83,9 +88,32 @@ else
   warning "Running without a domain name. The bot will use polling mode."
 fi
 
+# Ask for confirmation before proceeding
+echo ""
+echo -e "${YELLOW}Configuration Summary:${NC}"
+echo "Telegram Bot Token: [hidden for security]"
+echo "Use Domain: $use_domain"
+if [ "$use_domain" = "y" ] || [ "$use_domain" = "Y" ]; then
+  echo "Domain: $domain"
+  echo "Webhook Mode: Enabled"
+else
+  echo "Webhook Mode: Disabled (using polling)"
+fi
+
+echo ""
+proceed=$(prompt "Do you want to proceed with the installation? (y/n)" "y")
+
+if [ "$proceed" != "y" ] && [ "$proceed" != "Y" ]; then
+  error "Installation aborted by user"
+  exit 1
+fi
+
+echo ""
+progress "Beginning installation process..."
+
 # Update system and install dependencies
 progress "Updating system packages..."
-apt update && apt upgrade -y
+apt update
 
 progress "Installing Node.js..."
 curl -fsSL https://deb.nodesource.com/setup_16.x | bash -
@@ -184,12 +212,24 @@ WantedBy=multi-user.target
 EOF
 
 # Enable and start the service
+progress "Starting bot service..."
 systemctl daemon-reload
 systemctl enable ytdlp-bot
 systemctl start ytdlp-bot
 
-# Check service status
-if systemctl is-active --quiet ytdlp-bot; then
+# Check service status with retry
+service_running=false
+for i in {1..5}; do
+  if systemctl is-active --quiet ytdlp-bot; then
+    service_running=true
+    break
+  else
+    echo "Waiting for service to start (attempt $i/5)..."
+    sleep 2
+  fi
+done
+
+if $service_running; then
   progress "Bot service is running!"
 else
   error "Failed to start bot service. Check logs with: journalctl -u ytdlp-bot -e"

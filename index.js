@@ -186,34 +186,54 @@ bot.action(/quality:(.+):(.+)/, async (ctx) => {
       // Note: In a real implementation, you would upload the file to a storage service
       // and provide a download link. This is a placeholder.
       ctx.reply('File is too large. Consider using a different quality option or downloading a shorter video.');
+      
+      // Clean up the file immediately
+      try {
+        fs.unlinkSync(filePath);
+      } catch (e) {
+        console.error('Error deleting file:', e);
+      }
     } else {
       // Send the file to Telegram
       await ctx.editMessageText('Upload to Telegram in progress...');
       
-      // Determine if it's audio or video
-      const isAudio = quality === 'audio';
-      
-      if (isAudio) {
-        await ctx.telegram.sendAudio({
-          chat_id: ctx.chat.id,
-          source: fs.readFileSync(filePath),
-          filename: downloadedFile
-        });
-      } else {
-        await ctx.telegram.sendVideo({
-          chat_id: ctx.chat.id,
-          source: fs.readFileSync(filePath),
-          filename: downloadedFile
-        });
+      try {
+        // Determine if it's audio or video
+        const isAudio = quality === 'audio';
+        
+        if (isAudio) {
+          await ctx.telegram.sendAudio({
+            chat_id: ctx.chat.id,
+            source: fs.readFileSync(filePath),
+            filename: downloadedFile
+          });
+        } else {
+          await ctx.telegram.sendVideo({
+            chat_id: ctx.chat.id,
+            source: fs.readFileSync(filePath),
+            filename: downloadedFile
+          });
+        }
+        
+        await ctx.editMessageText('Download completed!');
+      } catch (sendError) {
+        console.error('Error sending file:', sendError);
+        await ctx.editMessageText('Error sending file to Telegram: ' + sendError.message);
+      } finally {
+        // Always clean up the file after sending or on error
+        try {
+          console.log(`Deleting file: ${filePath}`);
+          fs.unlinkSync(filePath);
+        } catch (e) {
+          console.error('Error deleting file:', e);
+        }
       }
-      
-      await ctx.editMessageText('Download completed!');
     }
     
-    // Clean up
+    // Clean up temp directory and user state
     try {
-      fs.unlinkSync(filePath);
       fs.rmdirSync(tempDir, { recursive: true });
+      console.log(`Cleaned up temp directory: ${tempDir}`);
     } catch (e) {
       console.error('Cleanup error:', e);
     }
@@ -326,7 +346,44 @@ app.post('/setup-webhook', async (req, res) => {
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+  const hostname = os.hostname();
+  res.json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    hostname: hostname,
+    tempDir: os.tmpdir(),
+    uptime: process.uptime()
+  });
+});
+
+// Add cleanup endpoint for maintenance
+app.post('/maintenance/cleanup', async (req, res) => {
+  try {
+    const tempDirBase = os.tmpdir();
+    const ytdlpDirs = fs.readdirSync(tempDirBase)
+      .filter(dir => dir.startsWith('ytdlp-'))
+      .map(dir => path.join(tempDirBase, dir));
+    
+    let cleanedCount = 0;
+    for (const dir of ytdlpDirs) {
+      try {
+        fs.rmdirSync(dir, { recursive: true });
+        cleanedCount++;
+      } catch (e) {
+        console.error(`Error cleaning directory ${dir}:`, e);
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: `Cleaned up ${cleanedCount} temporary directories`
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
 });
 
 // Serve static files
@@ -361,4 +418,34 @@ const server = app.listen(port, async () => {
       console.error('Error during automatic webhook setup:', error);
     }
   }
+  
+  // Setup periodic cleanup task every hour
+  setInterval(() => {
+    try {
+      const tempDirBase = os.tmpdir();
+      const ytdlpDirs = fs.readdirSync(tempDirBase)
+        .filter(dir => dir.startsWith('ytdlp-'));
+      
+      console.log(`Running scheduled cleanup task. Found ${ytdlpDirs.length} directories to check.`);
+      
+      for (const dir of ytdlpDirs) {
+        const dirPath = path.join(tempDirBase, dir);
+        try {
+          // Get directory stats to check age
+          const stats = fs.statSync(dirPath);
+          const ageInHours = (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60);
+          
+          // Clean up directories older than 3 hours
+          if (ageInHours > 3) {
+            fs.rmdirSync(dirPath, { recursive: true });
+            console.log(`Cleaned up old directory: ${dirPath}`);
+          }
+        } catch (e) {
+          console.error(`Error processing directory ${dirPath}:`, e);
+        }
+      }
+    } catch (error) {
+      console.error('Error in scheduled cleanup task:', error);
+    }
+  }, 60 * 60 * 1000); // Run every hour
 });
