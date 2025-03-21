@@ -1,0 +1,40 @@
+{
+  "name": "YT-DLP Telegram Bot",
+  "description": "A Telegram bot that downloads videos from various platforms using yt-dlp",
+  "repository": "https://github.com/yourusername/ytdlp-TgBot",
+  "logo": "https://raw.githubusercontent.com/yt-dlp/yt-dlp/master/.github/banner.png",
+  "keywords": ["node", "telegram", "bot", "yt-dlp", "video", "download"],
+  "success_url": "/setup-success",
+  "buildpacks": [
+    {
+      "url": "heroku/nodejs"
+    },
+    {
+      "url": "https://github.com/jonathanong/heroku-buildpack-ffmpeg-latest.git"
+    },
+    {
+      "url": "https://github.com/xrisk/heroku-buildpack-yt-dlp"
+    }
+  ],
+  "env": {
+    "TELEGRAM_BOT_TOKEN": {
+      "description": "Your Telegram Bot Token from BotFather",
+      "required": true
+    },
+    "NODE_ENV": {
+      "description": "Environment (production or development)",
+      "value": "production"
+    },
+    "AUTO_SETUP_WEBHOOK": {
+      "description": "Automatically set up webhook on application start",
+      "value": "true"
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "eco"
+    }
+  },
+  "stack": "heroku-22"
+}

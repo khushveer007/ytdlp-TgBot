@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YT-DLP Telegram Bot</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .container {
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .footer {
+            margin-top: 40px;
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+        }
+        .setup-button {
+            display: block;
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 20px;
+            text-align: center;
+            text-decoration: none;
+            font-size: 16px;
+            border-radius: 4px;
+            margin: 20px auto;
+            width: 200px;
+            cursor: pointer;
+        }
+        .setup-button:hover {
+            background-color: #45a049;
+        }
+        .status {
+            padding: 10px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+        .error {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>YT-DLP Telegram Bot</h1>
+    
+    <div class="container">
+        <h2>About this Bot</h2>
+        <p>This Telegram bot allows you to download videos from various platforms using yt-dlp.</p>
+        <p>Simply send a video URL to the bot, select your preferred quality, and receive your download.</p>
+        
+        <h2>How to Use</h2>
+        <ol>
+            <li>Search for the bot on Telegram</li>
+            <li>Start a conversation with the bot</li>
+            <li>Send a video URL from YouTube, Twitter, Instagram, etc.</li>
+            <li>Select your desired video quality</li>
+            <li>Wait for the download to complete</li>
+        </ol>
+        
+        <h2>Supported Platforms</h2>
+        <p>The bot supports many platforms including YouTube, Vimeo, Twitter, Facebook, Instagram, and more!</p>
+        
+        <div id="setup-section">
+            <h2>Bot Setup</h2>
+            <p>If you've just deployed this bot to Heroku, click the button below to set up the webhook:</p>
+            <button id="setup-webhook" class="setup-button">Set Up Webhook</button>
+            <div id="status-message" class="status hidden"></div>
+        </div>
+    </div>
+    
+    <div class="footer">
+        <p>Powered by yt-dlp and Heroku</p>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check if this is the setup success page
+            if (window.location.pathname === '/setup-success') {
+                document.getElementById('status-message').textContent = 'Bot successfully set up! Your bot is now ready to use.';
+                document.getElementById('status-message').classList.add('success');
+                document.getElementById('status-message').classList.remove('hidden');
+                document.getElementById('setup-webhook').classList.add('hidden');
+            }
+            
+            // Setup webhook button
+            document.getElementById('setup-webhook').addEventListener('click', function() {
+                const statusEl = document.getElementById('status-message');
+                statusEl.textContent = 'Setting up webhook...';
+                statusEl.classList.remove('hidden', 'success', 'error');
+                
+                fetch('/setup-webhook', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        statusEl.textContent = 'Webhook setup was successful! Your bot is now ready to use.';
+                        statusEl.classList.add('success');
+                    } else {
+                        statusEl.textContent = 'Error setting up webhook: ' + data.message;
+                        statusEl.classList.add('error');
+                    }
+                })
+                .catch(error => {
+                    statusEl.textContent = 'Error setting up webhook: ' + error;
+                    statusEl.classList.add('error');
+                });
+            });
+        });
+    </script>
+</body>
+</html>
