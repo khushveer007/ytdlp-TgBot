@@ -25,7 +25,7 @@ The fastest way to deploy is using our automated script:
 2. Connect to your VM using SSH
 3. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/ytdlp-TgBot.git
+   git clone https://github.com/khushveer007/ytdlp-TgBot.git
    cd ytdlp-TgBot
    ```
 4. Make the deployment script executable:
