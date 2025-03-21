@@ -7,14 +7,12 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-# Banner and immediate start indication
+# Banner
 echo -e "${GREEN}"
 echo "=================================="
 echo "  YT-DLP Telegram Bot Deployment  "
 echo "=================================="
 echo -e "${NC}"
-echo -e "${YELLOW}Starting deployment process...${NC}"
-echo ""
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
@@ -41,12 +39,23 @@ error() {
 prompt() {
   local prompt_msg="$1"
   local default_val="$2"
+  local options="$3"  # Optional parameter for available options
   local user_input
   
+  echo -e "${YELLOW}$prompt_msg${NC}"
+  echo -e "${GREEN}How to respond:${NC}"
+  echo -e " - Press ${GREEN}Enter${NC} to accept default value [${default_val}]"
+  echo -e " - Type your answer and press ${GREEN}Enter${NC} to set a custom value"
+  
+  if [ -n "$options" ]; then
+    # Display available options to guide the user
+    echo -e "${YELLOW}Available options: $options${NC}"
+  fi
+  
   if [ -n "$default_val" ]; then
-    echo -n -e "${YELLOW}$prompt_msg [${default_val}]: ${NC}"
+    echo -n -e "${YELLOW}Your choice [${default_val}]: ${NC}"
   else
-    echo -n -e "${YELLOW}$prompt_msg: ${NC}"
+    echo -n -e "${YELLOW}Your input (required): ${NC}"
   fi
   
   read user_input
@@ -58,8 +67,23 @@ prompt() {
   fi
 }
 
+# Ask for confirmation to run the script
+echo -e "${YELLOW}This script will deploy the YT-DLP Telegram Bot.${NC}"
+echo "It will install required packages, set up system services, and configure the bot."
+echo ""
+run_script=$(prompt "Do you want to run this script? (y/n)" "y")
+
+if [ "$run_script" != "y" ] && [ "$run_script" != "Y" ]; then
+  echo -e "${RED}Script execution cancelled by user.${NC}"
+  exit 0
+fi
+
+echo ""
+echo -e "${YELLOW}Starting deployment process...${NC}"
+echo ""
+
 # Collect all configuration values up front
-progress "Collecting configuration information..."
+progress "Collecting necessary information..."
 echo ""
 
 bot_token=$(prompt "Enter your Telegram Bot Token" "")
