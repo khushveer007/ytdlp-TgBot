@@ -6,6 +6,8 @@ echo ========================================
 echo   YT-DLP Telegram Bot Windows Deployer
 echo ========================================
 echo.
+echo Starting deployment process...
+echo.
 
 :: Check for admin privileges
 net session >nul 2>&1
@@ -15,6 +17,54 @@ if %errorLevel% neq 0 (
     pause
     exit /b 1
 )
+
+:: Get configuration immediately
+set /p BOT_TOKEN=Enter your Telegram Bot Token: 
+
+if "%BOT_TOKEN%"=="" (
+    echo Bot token cannot be empty
+    pause
+    exit /b 1
+)
+
+set /p USE_WEBHOOK=Do you want to use webhook mode? (y/n) [n]: 
+if /i "%USE_WEBHOOK%"=="y" (
+    set USE_WEBHOOK=true
+    set /p SERVER_URL=Enter your server URL (with https://): 
+    
+    if "!SERVER_URL!"=="" (
+        echo Server URL cannot be empty when using webhook mode
+        pause
+        exit /b 1
+    )
+) else (
+    set USE_WEBHOOK=false
+    set SERVER_URL=
+)
+
+:: Display configuration summary
+echo.
+echo Configuration Summary:
+echo Telegram Bot Token: [hidden for security]
+if /i "%USE_WEBHOOK%"=="true" (
+    echo Webhook Mode: Enabled
+    echo Server URL: %SERVER_URL%
+) else (
+    echo Webhook Mode: Disabled (using polling)
+)
+
+echo.
+set /p CONFIRM=Do you want to proceed with the installation? (y/n) [y]: 
+if /i "!CONFIRM!" neq "y" (
+    if /i "!CONFIRM!" neq "" (
+        echo Installation aborted by user
+        pause
+        exit /b 1
+    )
+)
+
+echo.
+echo Beginning installation process...
 
 :: Check for Node.js
 where node >nul 2>&1
@@ -35,6 +85,7 @@ if %errorLevel% neq 0 (
     if not exist "%USERPROFILE%\bin" mkdir "%USERPROFILE%\bin"
     
     :: Download yt-dlp
+    echo Downloading yt-dlp...
     powershell -Command "Invoke-WebRequest -Uri 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe' -OutFile '%USERPROFILE%\bin\yt-dlp.exe'"
     
     :: Add to PATH for current session
@@ -57,30 +108,6 @@ if %errorLevel% neq 0 (
     echo.
     set /p continue="Continue anyway? (y/n): "
     if /i "!continue!" neq "y" exit /b 1
-)
-
-:: Get configuration
-set /p BOT_TOKEN=Enter your Telegram Bot Token: 
-
-if "%BOT_TOKEN%"=="" (
-    echo Bot token cannot be empty
-    pause
-    exit /b 1
-)
-
-set /p USE_WEBHOOK=Do you want to use webhook mode? (y/n) [n]: 
-if /i "%USE_WEBHOOK%"=="y" (
-    set USE_WEBHOOK=true
-    set /p SERVER_URL=Enter your server URL (with https://): 
-    
-    if "!SERVER_URL!"=="" (
-        echo Server URL cannot be empty when using webhook mode
-        pause
-        exit /b 1
-    )
-) else (
-    set USE_WEBHOOK=false
-    set SERVER_URL=
 )
 
 :: Create .env file
