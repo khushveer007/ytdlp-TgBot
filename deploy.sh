@@ -58,15 +58,16 @@ prompt() {
     echo -n -e "${YELLOW}Your input (required): ${NC}"
   fi
   
-  read user_inputth a timeout to ensure it works properly across different terminals
+  # Read user input with a timeout to ensure it works properly across different terminals
   read -r user_input
   if [ -z "$user_input" ] && [ -n "$default_val" ]; then
-    echo "$default_val"f default values
-  else -z "$user_input" ] && [ -n "$default_val" ]; then
-    echo "$user_input""
-  fise
-}   echo "$user_input"
+    # Return default values
+    echo "$default_val"
+  else
+    # Return user input
+    echo "$user_input"
   fi
+}
 # Ask for confirmation to run the script
 echo -e "${YELLOW}This script will deploy the YT-DLP Telegram Bot.${NC}"
 echo "It will install required packages, set up system services, and configure the bot."
