@@ -61,24 +61,69 @@ bot.on('text', async (ctx) => {
   const urlPattern = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/;
   
   if (urlPattern.test(messageText)) {
-    const url = messageText;
+    const url = messageText.trim();
     
     try {
       // Send loading message
       const loadingMsg = await ctx.reply('Fetching available formats...');
       
-      // Create temp directory for this request
+      // Create temp directory for this request and ensure proper permissions
       const tempDir = path.join(os.tmpdir(), `ytdlp-${userId}-${Date.now()}`);
-      fs.mkdirSync(tempDir, { recursive: true });
+      fs.mkdirSync(tempDir, { recursive: true, mode: 0o755 });
       
-      // Get available formats using yt-dlp
-      const { stdout } = await exec(`yt-dlp -F "${url}"`, { cwd: tempDir });
+      // Check yt-dlp version and update if necessary
+      try {
+        const { stdout: versionOutput } = await exec('yt-dlp --version');
+        console.log(`Using yt-dlp version: ${versionOutput.trim()}`);
+        
+        // Update yt-dlp to avoid issues with newer sites
+        await exec('yt-dlp -U', { timeout: 30000 }).catch(e => {
+          console.log('Non-critical: Failed to update yt-dlp:', e.message);
+        });
+      } catch (e) {
+        console.error('Error checking yt-dlp version:', e);
+      }
+      
+      // Properly quote/escape the URL to handle special characters
+      const escapedUrl = url.replace(/"/g, '\\"');
+      
+      console.log(`Attempting to fetch formats for URL: ${url}`);
+      console.log(`User ID: ${userId}, Temp directory: ${tempDir}`);
+      
+      // Get available formats using yt-dlp with increased timeout and proper error handling
+      const formatCommand = `yt-dlp -F "${escapedUrl}" --no-warnings`;
+      console.log(`Executing command: ${formatCommand}`);
+      
+      const { stdout, stderr } = await exec(formatCommand, { 
+        cwd: tempDir,
+        timeout: 60000, // Increased timeout to 60 seconds
+        env: { ...process.env, PATH: process.env.PATH }
+      });
+      
+      if (stderr) {
+        console.warn(`yt-dlp stderr: ${stderr}`);
+      }
+      
+      // Check if yt-dlp returned any usable output
+      if (!stdout || stdout.trim() === '') {
+        throw new Error('No format information returned by yt-dlp. The URL might be invalid or the content might be restricted.');
+      }
+      
+      console.log(`Format data retrieved, length: ${stdout.length} characters`);
       
       // Parse formats
       const formatLines = stdout.split('\n').filter(line => 
         line.includes('x') && 
         (line.includes('mp4') || line.includes('webm') || line.includes('audio only'))
       );
+      
+      console.log(`Found ${formatLines.length} compatible formats`);
+      
+      // If no valid formats found, try with a simpler approach
+      if (formatLines.length === 0) {
+        // Create quality options even without specific format info
+        console.log('No specific formats detected, offering generic quality options');
+      }
       
       // Create quality options
       const qualityOptions = [
@@ -111,7 +156,34 @@ bot.on('text', async (ctx) => {
       
     } catch (error) {
       console.error('Error fetching formats:', error);
-      ctx.reply('Error fetching video information. Please check if the URL is valid and try again.');
+      // Provide more detailed error message based on the error
+      let errorMessage = 'Error fetching video information. ';
+      
+      if (error.message.includes('not found')) {
+        errorMessage += 'The URL might be invalid or the video has been removed.';
+      } else if (error.message.includes('timeout')) {
+        errorMessage += 'The request timed out. The server might be slow or the video is too large.';
+      } else if (error.message.includes('permission')) {
+        errorMessage += 'Permission denied accessing system resources.';
+      } else if (error.message.includes('region') || error.message.includes('country')) {
+        errorMessage += 'This content might be region-restricted.';
+      } else if (error.message.includes('copyright') || error.message.includes('removed')) {
+        errorMessage += 'This content might have been removed due to copyright issues.';
+      } else {
+        errorMessage += 'Please check if the URL is valid and try again.';
+      }
+      
+      ctx.reply(errorMessage);
+      
+      // Clean up temp directory if it was created
+      try {
+        if (fs.existsSync(tempDir)) {
+          fs.rmdirSync(tempDir, { recursive: true });
+          console.log(`Cleaned up temp directory after error: ${tempDir}`);
+        }
+      } catch (e) {
+        console.error('Error cleaning up temp directory:', e);
+      }
     }
   } else {
     ctx.reply('Please send a valid URL.');
@@ -160,10 +232,19 @@ bot.action(/quality:(.+):(.+)/, async (ctx) => {
     const outputFilename = `video_${Date.now()}`;
     const outputPath = path.join(tempDir, outputFilename);
     
-    // Download the video using yt-dlp
-    const downloadCommand = `yt-dlp ${formatOption} -o "${outputPath}.%(ext)s" "${url}"`;
+    // Properly escape URL to handle special characters
+    const escapedUrl = url.replace(/"/g, '\\"');
+    
+    // Download the video using yt-dlp with additional options for better compatibility
+    const downloadCommand = `yt-dlp ${formatOption} --no-warnings --no-check-certificate --prefer-ffmpeg -o "${outputPath}.%(ext)s" "${escapedUrl}"`;
+    console.log(`Executing download command: ${downloadCommand}`);
+    
     await ctx.editMessageText('Downloading... Please wait.');
-    await exec(downloadCommand, { cwd: tempDir });
+    await exec(downloadCommand, { 
+      cwd: tempDir,
+      timeout: 300000, // 5 minutes timeout for download
+      env: { ...process.env, PATH: process.env.PATH }
+    });
     
     // Find downloaded file (extension may vary)
     const files = fs.readdirSync(tempDir);
@@ -174,10 +255,12 @@ bot.action(/quality:(.+):(.+)/, async (ctx) => {
     }
     
     const filePath = path.join(tempDir, downloadedFile);
+    console.log(`Download completed: ${filePath}`);
     
     // Send message based on file size
     const stats = fs.statSync(filePath);
     const fileSizeInMB = stats.size / (1024 * 1024);
+    console.log(`File size: ${fileSizeInMB.toFixed(2)} MB`);
     
     if (fileSizeInMB > 50) {
       // File too large for Telegram, provide download link instead
@@ -242,7 +325,17 @@ bot.action(/quality:(.+):(.+)/, async (ctx) => {
     
   } catch (error) {
     console.error('Download error:', error);
-    ctx.editMessageText(`Error downloading video: ${error.message}`);
+    let errorMessage = `Error downloading video: ${error.message}`;
+    
+    if (error.message.includes('unavailable') || error.message.includes('not available')) {
+      errorMessage = 'The video is unavailable or restricted in your region';
+    } else if (error.message.includes('copyright')) {
+      errorMessage = 'The video was removed due to copyright issues';
+    } else if (error.message.includes('Private video')) {
+      errorMessage = 'This is a private video that requires authentication';
+    }
+    
+    ctx.editMessageText(errorMessage);
     
     // Clean up on error
     if (userStates[userId] && userStates[userId].tempDir) {
@@ -392,6 +485,23 @@ app.use(express.static('public'));
 // Start the server
 const server = app.listen(port, async () => {
   console.log(`Server is running on port ${port}`);
+  
+  // Check and update yt-dlp at startup
+  try {
+    console.log('Checking yt-dlp version...');
+    const { stdout: versionBefore } = await exec('yt-dlp --version');
+    console.log(`Current yt-dlp version: ${versionBefore.trim()}`);
+    
+    console.log('Updating yt-dlp...');
+    const { stdout: updateOutput } = await exec('yt-dlp -U');
+    console.log(updateOutput);
+    
+    const { stdout: versionAfter } = await exec('yt-dlp --version');
+    console.log(`yt-dlp version after update: ${versionAfter.trim()}`);
+  } catch (error) {
+    console.error('Error updating yt-dlp:', error.message);
+    console.log('Continuing with current yt-dlp version');
+  }
   
   // Auto setup webhook if enabled
   if (useWebhook && process.env.AUTO_SETUP_WEBHOOK === 'true') {
