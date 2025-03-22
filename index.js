@@ -71,70 +71,77 @@ bot.on('text', async (ctx) => {
       const tempDir = path.join(os.tmpdir(), `ytdlp-${userId}-${Date.now()}`);
       fs.mkdirSync(tempDir, { recursive: true, mode: 0o755 });
       
-      // Check yt-dlp version and update if necessary
-      try {
-        const { stdout: versionOutput } = await exec('yt-dlp --version');
-        console.log(`Using yt-dlp version: ${versionOutput.trim()}`);
-        
-        // Update yt-dlp to avoid issues with newer sites
-        await exec('yt-dlp -U', { timeout: 30000 }).catch(e => {
-          console.log('Non-critical: Failed to update yt-dlp:', e.message);
-        });
-      } catch (e) {
-        console.error('Error checking yt-dlp version:', e);
+      // Check if this is a YouTube URL
+      const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
+      
+      console.log(`Processing URL: ${url}`);
+      console.log(`User ID: ${userId}, Temp directory: ${tempDir}, isYouTube: ${isYouTube}`);
+      
+      // Special command for YouTube videos with additional compatibility options
+      let formatCommand;
+      if (isYouTube) {
+        formatCommand = [
+          'yt-dlp',
+          '-F',
+          '--no-warnings',
+          '--no-check-certificate',
+          '--geo-bypass',
+          '--extractor-args', 'youtube:player_client=web',
+          url
+        ];
+        console.log(`Executing YouTube command: ${formatCommand.join(' ')}`);
+      } else {
+        formatCommand = [
+          'yt-dlp',
+          '-F',
+          '--no-warnings',
+          url
+        ];
+        console.log(`Executing generic command: ${formatCommand.join(' ')}`);
       }
       
-      // Properly quote/escape the URL to handle special characters
-      const escapedUrl = url.replace(/"/g, '\\"');
-      
-      console.log(`Attempting to fetch formats for URL: ${url}`);
-      console.log(`User ID: ${userId}, Temp directory: ${tempDir}`);
-      
-      // Get available formats using yt-dlp with increased timeout and proper error handling
-      const formatCommand = `yt-dlp -F "${escapedUrl}" --no-warnings`;
-      console.log(`Executing command: ${formatCommand}`);
-      
-      const { stdout, stderr } = await exec(formatCommand, { 
+      // Execute the command using Node's spawn to avoid shell parsing issues
+      const { stdout, stderr } = await exec(formatCommand.join(' '), { 
         cwd: tempDir,
-        timeout: 60000, // Increased timeout to 60 seconds
+        timeout: 90000, // 90 seconds timeout
         env: { ...process.env, PATH: process.env.PATH }
       });
       
-      if (stderr) {
+      // Check for errors
+      if (stderr && stderr.trim() !== '') {
         console.warn(`yt-dlp stderr: ${stderr}`);
       }
       
-      // Check if yt-dlp returned any usable output
       if (!stdout || stdout.trim() === '') {
-        throw new Error('No format information returned by yt-dlp. The URL might be invalid or the content might be restricted.');
+        console.error('No format information returned by yt-dlp');
+        throw new Error('No format information returned. The URL might be invalid or content might be restricted.');
       }
       
       console.log(`Format data retrieved, length: ${stdout.length} characters`);
       
-      // Parse formats
+      // Parse formats with a more relaxed approach
       const formatLines = stdout.split('\n').filter(line => 
-        line.includes('x') && 
-        (line.includes('mp4') || line.includes('webm') || line.includes('audio only'))
+        (line.includes('x') || line.includes('audio only')) && 
+        (line.includes('mp4') || line.includes('webm') || line.includes('m4a'))
       );
       
       console.log(`Found ${formatLines.length} compatible formats`);
       
-      // If no valid formats found, try with a simpler approach
-      if (formatLines.length === 0) {
-        // Create quality options even without specific format info
-        console.log('No specific formats detected, offering generic quality options');
-      }
-      
-      // Create quality options
-      const qualityOptions = [
-        { text: '🎬 Best Video (with audio)', callback_data: `quality:${url}:best` },
-        { text: '📱 480p', callback_data: `quality:${url}:480` },
-        { text: '📱 720p', callback_data: `quality:${url}:720` },
-        { text: '🖥️ 1080p', callback_data: `quality:${url}:1080` },
+      // Create quality options - use the appropriate display for YouTube vs other platforms
+      const qualityOptions = isYouTube ? [
+        { text: '🎬 Best Video (HD)', callback_data: `quality:${url}:best` },
+        { text: '📱 480p (SD)', callback_data: `quality:${url}:480` },
+        { text: '📱 720p (HD)', callback_data: `quality:${url}:720` },
+        { text: '🖥️ 1080p (Full HD)', callback_data: `quality:${url}:1080` },
+        { text: '🎵 MP3 Audio Only', callback_data: `quality:${url}:audio` }
+      ] : [
+        { text: '🎬 Best Quality', callback_data: `quality:${url}:best` },
+        { text: '📱 Medium Quality', callback_data: `quality:${url}:720` },
+        { text: '📱 Lower Quality', callback_data: `quality:${url}:480` },
         { text: '🎵 Audio Only', callback_data: `quality:${url}:audio` }
       ];
       
-      // Update loading message with format options
+      // Update message with format options
       await ctx.telegram.editMessageText(
         ctx.chat.id,
         loadingMsg.message_id,
@@ -151,24 +158,33 @@ bot.on('text', async (ctx) => {
       userStates[userId] = {
         url,
         tempDir,
-        formatLines
+        formatLines,
+        isYouTube
       };
       
     } catch (error) {
       console.error('Error fetching formats:', error);
+      
+      // Get the full error details for debugging
+      console.error('Full error:', error.stack);
+      
       // Provide more detailed error message based on the error
       let errorMessage = 'Error fetching video information. ';
       
-      if (error.message.includes('not found')) {
+      if (error.message.includes('not found') || error.message.includes('No such file')) {
         errorMessage += 'The URL might be invalid or the video has been removed.';
       } else if (error.message.includes('timeout')) {
         errorMessage += 'The request timed out. The server might be slow or the video is too large.';
       } else if (error.message.includes('permission')) {
         errorMessage += 'Permission denied accessing system resources.';
       } else if (error.message.includes('region') || error.message.includes('country')) {
-        errorMessage += 'This content might be region-restricted.';
+        errorMessage += 'This content might be region-restricted. Try again with a different video.';
       } else if (error.message.includes('copyright') || error.message.includes('removed')) {
         errorMessage += 'This content might have been removed due to copyright issues.';
+      } else if (error.message.includes('private') || error.message.includes('Private')) {
+        errorMessage += 'This appears to be a private video that requires authentication.';
+      } else if (error.message.includes('unavailable')) {
+        errorMessage += 'This video is currently unavailable.';
       } else {
         errorMessage += 'Please check if the URL is valid and try again.';
       }
@@ -205,38 +221,85 @@ bot.action(/quality:(.+):(.+)/, async (ctx) => {
   
   try {
     const tempDir = userStates[userId].tempDir;
+    const isYouTube = userStates[userId].isYouTube || url.includes('youtube.com') || url.includes('youtu.be');
     let formatOption = '';
     
     // Set format option based on selected quality
-    switch (quality) {
-      case 'best':
-        formatOption = '-f "best"';
-        break;
-      case '480':
-        formatOption = '-f "bestvideo[height<=480]+bestaudio/best[height<=480]"';
-        break;
-      case '720':
-        formatOption = '-f "bestvideo[height<=720]+bestaudio/best[height<=720]"';
-        break;
-      case '1080':
-        formatOption = '-f "bestvideo[height<=1080]+bestaudio/best[height<=1080]"';
-        break;
-      case 'audio':
-        formatOption = '-f "bestaudio" -x --audio-format mp3';
-        break;
-      default:
-        formatOption = '-f "best"';
+    // For YouTube, use more specific format selectors
+    if (isYouTube) {
+      switch (quality) {
+        case 'best':
+          formatOption = '-f "bestvideo+bestaudio/best" --merge-output-format mp4';
+          break;
+        case '480':
+          formatOption = '-f "bestvideo[height<=480]+bestaudio/best[height<=480]" --merge-output-format mp4';
+          break;
+        case '720':
+          formatOption = '-f "bestvideo[height<=720]+bestaudio/best[height<=720]" --merge-output-format mp4';
+          break;
+        case '1080':
+          formatOption = '-f "bestvideo[height<=1080]+bestaudio/best[height<=1080]" --merge-output-format mp4';
+          break;
+        case 'audio':
+          formatOption = '-f "bestaudio" -x --audio-format mp3';
+          break;
+        default:
+          formatOption = '-f "bestvideo+bestaudio/best" --merge-output-format mp4';
+      }
+    } else {
+      // For non-YouTube URLs, use the original format options
+      switch (quality) {
+        case 'best':
+          formatOption = '-f "best"';
+          break;
+        case '480':
+          formatOption = '-f "bestvideo[height<=480]+bestaudio/best[height<=480]"';
+          break;
+        case '720':
+          formatOption = '-f "bestvideo[height<=720]+bestaudio/best[height<=720]"';
+          break;
+        case '1080':
+          formatOption = '-f "bestvideo[height<=1080]+bestaudio/best[height<=1080]"';
+          break;
+        case 'audio':
+          formatOption = '-f "bestaudio" -x --audio-format mp3';
+          break;
+        default:
+          formatOption = '-f "best"';
+      }
     }
     
     // Generate random filename
     const outputFilename = `video_${Date.now()}`;
     const outputPath = path.join(tempDir, outputFilename);
     
-    // Properly escape URL to handle special characters
-    const escapedUrl = url.replace(/"/g, '\\"');
+    // Build the command parts to avoid shell escaping issues
+    let downloadParts = [
+      'yt-dlp',
+      ...formatOption.split(' '),
+      '--no-warnings',
+      '--no-check-certificate',
+      '--prefer-ffmpeg'
+    ];
     
-    // Download the video using yt-dlp with additional options for better compatibility
-    const downloadCommand = `yt-dlp ${formatOption} --no-warnings --no-check-certificate --prefer-ffmpeg -o "${outputPath}.%(ext)s" "${escapedUrl}"`;
+    // Add YouTube-specific options
+    if (isYouTube) {
+      downloadParts = [
+        ...downloadParts,
+        '--geo-bypass',
+        '--extractor-args', 'youtube:player_client=web'
+      ];
+    }
+    
+    // Add output path and URL
+    downloadParts = [
+      ...downloadParts,
+      '-o', `${outputPath}.%(ext)s`,
+      url
+    ];
+    
+    // Join parts into a command
+    const downloadCommand = downloadParts.join(' ');
     console.log(`Executing download command: ${downloadCommand}`);
     
     await ctx.editMessageText('Downloading... Please wait.');
@@ -333,6 +396,10 @@ bot.action(/quality:(.+):(.+)/, async (ctx) => {
       errorMessage = 'The video was removed due to copyright issues';
     } else if (error.message.includes('Private video')) {
       errorMessage = 'This is a private video that requires authentication';
+    } else if (error.message.includes('sign in')) {
+      errorMessage = 'This video requires you to sign in (age-restricted or private content)';
+    } else if (error.message.includes('video is too large')) {
+      errorMessage = 'Video is too large to process. Try a lower quality option.';
     }
     
     ctx.editMessageText(errorMessage);
@@ -486,7 +553,7 @@ app.use(express.static('public'));
 const server = app.listen(port, async () => {
   console.log(`Server is running on port ${port}`);
   
-  // Check and update yt-dlp at startup
+  // Check and update yt-dlp at startup - this is critical
   try {
     console.log('Checking yt-dlp version...');
     const { stdout: versionBefore } = await exec('yt-dlp --version');
@@ -496,11 +563,16 @@ const server = app.listen(port, async () => {
     const { stdout: updateOutput } = await exec('yt-dlp -U');
     console.log(updateOutput);
     
+    // Test yt-dlp with a simple query to verify it works
+    console.log('Testing yt-dlp with a sample YouTube URL...');
+    const { stdout: testOutput } = await exec('yt-dlp --no-warnings --simulate --print title https://www.youtube.com/watch?v=jNQXAC9IVRw');
+    console.log(`Test successful, found video: ${testOutput.trim()}`);
+    
     const { stdout: versionAfter } = await exec('yt-dlp --version');
     console.log(`yt-dlp version after update: ${versionAfter.trim()}`);
   } catch (error) {
     console.error('Error updating yt-dlp:', error.message);
-    console.log('Continuing with current yt-dlp version');
+    console.log('Warning: yt-dlp might not be working correctly. Please check installation.');
   }
   
   // Auto setup webhook if enabled
