@@ -8,6 +8,7 @@ const path = require('path');
 const os = require('os');
 const util = require('util');
 const exec = util.promisify(require('child_process').exec);
+const execFile = util.promisify(require('child_process').execFile);
 
 // Initialize the bot
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
@@ -103,7 +104,7 @@ bot.on('text', async (ctx) => {
       }
       
       // Execute the command using Node's spawn to avoid shell parsing issues
-      const { stdout, stderr } = await exec(formatCommand.join(' '), { 
+      const { stdout, stderr } = await execFile('yt-dlp', formatCommand.slice(1), { 
         cwd: tempDir,
         timeout: 90000, // 90 seconds timeout
         env: { ...process.env, PATH: process.env.PATH }
@@ -305,7 +306,7 @@ bot.action(/quality:(.+):(.+)/, async (ctx) => {
     console.log(`Executing download command: ${downloadCommand}`);
     
     await ctx.editMessageText('Downloading... Please wait.');
-    await exec(downloadCommand, { 
+    await execFile('yt-dlp', downloadParts.slice(1), { 
       cwd: tempDir,
       timeout: 300000, // 5 minutes timeout for download
       env: { ...process.env, PATH: process.env.PATH }
