@@ -82,6 +82,7 @@ bot.on('text', async (ctx) => {
       if (isYouTube) {
         formatCommand = [
           'yt-dlp',
+          '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
           '-F',
           '--no-warnings',
           '--no-check-certificate',
@@ -93,6 +94,7 @@ bot.on('text', async (ctx) => {
       } else {
         formatCommand = [
           'yt-dlp',
+          '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
           '-F',
           '--no-warnings',
           url
@@ -120,10 +122,9 @@ bot.on('text', async (ctx) => {
       console.log(`Format data retrieved, length: ${stdout.length} characters`);
       
       // Parse formats with a more relaxed approach
-      const formatLines = stdout.split('\n').filter(line => 
-        (line.includes('x') || line.includes('audio only')) && 
-        (line.includes('mp4') || line.includes('webm') || line.includes('m4a'))
-      );
+      const formatLines = stdout
+        .split('\n')
+        .filter(line => line.trim() !== '' && (line.includes('mp4') || line.includes('webm') || line.includes('m4a') || line.toLowerCase().includes('audio') || line.toLowerCase().includes('video')));
       
       console.log(`Found ${formatLines.length} compatible formats`);
       
@@ -276,6 +277,7 @@ bot.action(/quality:(.+):(.+)/, async (ctx) => {
     // Build the command parts to avoid shell escaping issues
     let downloadParts = [
       'yt-dlp',
+      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
       ...formatOption.split(' '),
       '--no-warnings',
       '--no-check-certificate',
